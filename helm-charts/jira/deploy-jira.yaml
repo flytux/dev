@@ -1,0 +1,60 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jira-pvc
+  labels:
+    app: jira-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jira
+  labels:
+    app: jira
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30088
+    name: ui
+  type: NodePort
+  selector:
+    app: jira
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira
+spec:
+  selector:
+    matchLabels:
+      app: jira
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: jira
+    spec:
+      containers:
+      - image: atlassian/jira-software
+        name: jira
+        ports:
+        - containerPort: 8080
+          name: ui
+        volumeMounts:
+        - name: jira-pv
+          mountPath: /var/atlassian/application-data/jira
+      volumes:
+        - name: jira-pv
+          persistentVolumeClaim:
+            claimName: jira-pvc
+

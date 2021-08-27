@@ -1,0 +1,60 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: youtrack-pvc
+  labels:
+    app: youtrack-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: youtrack
+  labels:
+    app: youtrack
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30080
+    name: ui
+  type: NodePort
+  selector:
+    app: youtrack
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: youtrack
+spec:
+  selector:
+    matchLabels:
+      app: youtrack
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: youtrack
+    spec:
+      containers:
+      - image: jetbrains/youtrack:2020.6.6600
+        name: youtrack
+        ports:
+        - containerPort: 8080
+          name: ui
+        volumeMounts:
+        - name: youtrack-pv
+          mountPath: /opt/youtrack/data
+      volumes:
+        - name: youtrack-pv
+          persistentVolumeClaim:
+            claimName: youtrack-pvc
+

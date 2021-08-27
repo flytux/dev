@@ -1,0 +1,71 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: crowd
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: crowd
+  name: crowd-pvc
+  labels:
+    app: crowd
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: "local-path"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: crowd
+  name: crowd
+  labels:
+    app: crowd
+spec:
+  ports:
+  - port: 8095
+    targetPort: 8095
+    nodePort: 30095
+    name: ui
+  type: NodePort
+  selector:
+    app: crowd
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: crowd
+  name: crowd
+spec:
+  selector:
+    matchLabels:
+      app: crowd
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: crowd
+    spec:
+      containers:
+      - image: atlassian/crowd
+        name: crowd
+        ports:
+        - containerPort: 8095
+          name: ui
+        volumeMounts:
+        - name: local-home
+          mountPath: /var/atlassian/application-data/crowd
+      volumes:
+        - name: local-home
+          persistentVolumeClaim:
+            claimName: crowd-pvc
+

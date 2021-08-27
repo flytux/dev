@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: docker-auth
+    annotations:
+        tekton.dev/docker-0: kw01:30005
+type: kubernetes.io/basic-auth
+stringData:
+    username: admin
+    password: "1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-auth
+  annotations:
+    tekton.dev/git-0: http://kw01:30003
+type: kubernetes.io/basic-auth
+stringData:
+  username: jaehoon
+  password: "passworD1!"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: build-sa
+secrets:
+    - name: docker-auth
+    - name: gitea-auth

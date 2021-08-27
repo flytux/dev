@@ -1,0 +1,21 @@
+apiVersion: tekton.dev/v1beta1
+kind: TaskRun
+metadata:
+  generateName: deploy-run-
+spec:
+  serviceAccountName: build-sa
+  taskRef:
+    name: deploy
+  params:
+    - name: argo-app-name
+      value: nginx
+    - name: git-url
+      value: http://kw01:30003/jaehoon/argo-gitops
+    - name: app-image
+      value: kw01:30005/nginx
+    - name: revision
+      value: latest
+  workspaces:
+  - name: git-ops
+    emptyDir: {}     
+    

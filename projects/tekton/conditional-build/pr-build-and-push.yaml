@@ -1,0 +1,36 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: build-push-deploy-run-
+spec:
+  serviceAccountName: build-sa
+  pipelineRef:
+    name: build-push-deploy
+  workspaces:
+  - name: shared-workspace
+    persistentvolumeclaim:
+      claimName: build-source-pvc
+  - name: git-ops
+    emptyDir: {}
+  params:
+  - name: GIT_URL
+    #value: http://kw01:30003/jaehoon/buildpack-samples.git
+    #value: https://github.com/flytux/spring-petclinic.git
+    value: https://github.com/flytux/jib-gradle-demo
+  - name: REVISION
+    value: main
+  - name: DIRECTORY
+    value: .
+  - name: IMAGE_URL
+    value: gradle-demo
+  - name: CACHE
+    value: build-cache
+  - name: GIT_OPS_URL
+    value: http://kw01:30003/jaehoon/argo-gitops
+  - name: APP_NAME
+    value: gradle-demo
+  podTemplate:
+    volumes:
+    - name: build-cache
+      persistentVolumeClaim:
+        claimName: build-cache-pvc  

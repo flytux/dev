@@ -1,0 +1,54 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: deploy
+spec:
+  params:
+  - name: argo-app-name
+  - name: git-ops-url
+  - name: app-image
+  - name: revision
+  workspaces:
+  - name: git-ops
+
+  steps:
+  - name: git-checkout
+    image: alpine/git:v2.26.2
+    workingDir: "$(workspaces.git-ops.path)"
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      git init
+      git remote add origin $(params.git-ops-url)
+      git fetch --depth 1 origin master
+      git checkout master
+  - name: update-yaml
+    image: alpine/git:v2.26.2
+    workingDir: "$(workspaces.git-ops.path)"
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      echo $(params.app-image)
+      echo $(params.revision)
+      sed -i 's/\(image: kw01:30005\/$(params.app-image)\):.*$/\1:$(params.revision)/' deploy.yaml
+
+  - name: commit-push-changes-gitops
+    image: alpine/git:v2.26.2
+    workingDir: "$(workspaces.git-ops.path)"
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      git config --global user.email "jaehoon.jung@kubeworks.net"
+      git add --all .
+      git commit --allow-empty -m "image tag updated to $(params.revision)"
+      git push origin master
+ 
+  - name: wait-for-argocd-rollout
+    image: argoproj/argocd:v1.7.7
+    script: |
+      #!/usr/bin/env sh
+      set -e
+      argocd login 192.168.43.252:31608 --username=admin --password=1 --insecure
+      argocd app sync $(params.argo-app-name) --insecure
+      argocd app wait $(params.argo-app-name) --sync --health --operation --insecure

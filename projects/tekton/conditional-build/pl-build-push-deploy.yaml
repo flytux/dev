@@ -1,0 +1,118 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: build-push-deploy
+spec:
+  workspaces:
+  - name: shared-workspace
+  - name: git-ops
+
+  params:
+  - name: GIT_URL
+  - name: REVISION
+  - name: IMAGE_URL
+  - name: DIRECTORY
+  - name: CACHE
+  - name: GIT_OPS_URL
+  - name: APP_NAME
+
+  tasks:
+  - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task we installed
+    taskRef:
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: shared-workspace
+    params:
+    - name: url
+      value: $(params.GIT_URL)
+    - name: revision
+      value: $(params.REVISION)
+    - name: subdirectory
+      value: ""
+    - name: deleteExisting
+      value: "true"
+
+  - name: check-buildtype
+    params:
+    - name: path
+      value: $(params.DIRECTORY)
+    taskRef:
+      name: check-dockerfile
+    runAfter:
+    - fetch-repository
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+
+
+  - name: build-id
+    taskRef:
+      name: generate-build-id
+    runAfter:
+    - check-buildtype
+    params:
+    - name: base-version
+      value: "dev"
+    
+  - name: jib-gradle # This task uses the `buildpacks` task to build the application
+    when:
+      - input: $(tasks.check-buildtype.results.exists)
+        operator: in
+        values: ["no"]
+    taskRef:
+      name: jib-gradle
+    runAfter:
+    - build-id
+    workspaces:
+    - name: source
+      workspace: shared-workspace
+    params:
+    - name: DIRECTORY
+      value: $(params.DIRECTORY) # This is the path within our samples repo we want to build
+    - name: IMAGE
+      value: $(params.IMAGE_URL):$(tasks.build-id.results.timestamp)
+    - name: INSECUREREGISTRY
+      value: "true"
+    - name: CACHE
+      value: $(params.CACHE)
+  
+  - name: buildah
+    when:
+      - input: $(tasks.check-buildtype.results.exists)
+        operator: in
+        values: ["yes"]
+    taskRef:
+      name: buildah
+    runAfter:
+      - build-id
+    params:
+      - name: CONTEXT
+        value: $(params.DIRECTORY)
+      - name: IMAGE
+        value: $(params.IMAGE_URL):$(tasks.build-id.results.build-id)
+      - name: TLSVERIFY
+        value: "false"
+    workspaces:
+      - name: source
+        workspace: shared-workspace
+  finally:
+  - name: argo-deploy
+    taskRef:
+      name: deploy
+ #   runAfter:
+ #     - buildah
+    params:
+      - name: argo-app-name
+        value: $(params.APP_NAME)
+      - name: git-ops-url
+        value: $(params.GIT_OPS_URL)
+      - name: app-image
+        value: $(params.IMAGE_URL)
+      - name: revision
+        value: $(tasks.build-id.results.timestamp)
+    workspaces:
+      - name: git-ops
+        workspace: git-ops
+    

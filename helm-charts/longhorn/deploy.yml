@@ -1,0 +1,192 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proxy-clusterrole-kubeapiserver
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes/metrics
+  - nodes/proxy
+  - nodes/stats
+  - nodes/log
+  - nodes/spec
+  verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proxy-role-binding-kubernetes-master
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proxy-clusterrole-kubeapiserver
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: kube-apiserver
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cattle-system
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cattle
+  namespace: cattle-system
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cattle-admin-binding
+  namespace: cattle-system
+  labels:
+    cattle.io/creator: "norman"
+subjects:
+- kind: ServiceAccount
+  name: cattle
+  namespace: cattle-system
+roleRef:
+  kind: ClusterRole
+  name: cattle-admin
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cattle-credentials-c3564b2
+  namespace: cattle-system
+type: Opaque
+data:
+  url: "aHR0cHM6Ly9sb2NhbGhvc3Q6ODQ0Mw=="
+  token: "dnFxdHJtc2RuOW10cTQ3Ymg1N3drbndzNXI3cWNrZ2t4aDJ4dGo3bGJ4OWIyZmI1bXdseHA1"
+  namespace: ""
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cattle-admin
+  labels:
+    cattle.io/creator: "norman"
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- nonResourceURLs:
+  - '*'
+  verbs:
+  - '*'
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cattle-cluster-agent
+  namespace: cattle-system
+spec:
+  selector:
+    matchLabels:
+      app: cattle-cluster-agent
+  template:
+    metadata:
+      labels:
+        app: cattle-cluster-agent
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: beta.kubernetes.io/os
+                  operator: NotIn
+                  values:
+                    - windows
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/controlplane
+                operator: In
+                values:
+                - "true"
+            weight: 100
+          - preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: In
+                values:
+                - "true"
+            weight: 100
+          - preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: In
+                values:
+                - "true"
+            weight: 100
+          - preference:
+              matchExpressions:
+              - key: cattle.io/cluster-agent
+                operator: In
+                values:
+                - "true"
+            weight: 1
+      serviceAccountName: cattle
+      tolerations:
+      # No taints or no controlplane nodes found, added defaults
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/controlplane
+        value: "true"
+      - effect: NoSchedule
+        key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+      - effect: NoSchedule
+        key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+      containers:
+        - name: cluster-register
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: CATTLE_FEATURES
+            value: ""
+          - name: CATTLE_IS_RKE
+            value: "false"
+          - name: CATTLE_SERVER
+            value: "https://localhost:8443"
+          - name: CATTLE_CA_CHECKSUM
+            value: "81d5547084f8d4674f18f17f26df7315968d2d59a9933a8368868ea3b19e7771"
+          - name: CATTLE_CLUSTER
+            value: "true"
+          - name: CATTLE_K8S_MANAGED
+            value: "true"
+          image: rancher/rancher-agent:v2.5.7
+          volumeMounts:
+          - name: cattle-credentials
+            mountPath: /cattle-credentials
+            readOnly: true
+          readinessProbe:
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            httpGet:
+              path: /health
+              port: 8080
+      volumes:
+      - name: cattle-credentials
+        secret:
+          secretName: cattle-credentials-c3564b2
+          defaultMode: 320
+
