@@ -3,7 +3,7 @@
 
 FROM ubuntu:bionic
 
-RUN apt-get update && apt-get install -y curl net-tools iproute2 iputils-ping openssh-server zsh git vim tmux jq netcat net-tools gnupg apt-transport-https lsb-release openjdk-11-jdk maven 
+RUN apt-get update && apt-get install -y curl net-tools iproute2 dnsutils iputils-ping openssh-server zsh git vim tmux jq netcat net-tools gnupg apt-transport-https lsb-release openjdk-11-jdk maven 
 
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 
