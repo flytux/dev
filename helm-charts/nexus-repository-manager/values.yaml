@@ -11,7 +11,7 @@ image:
 
 nexus:
   docker:
-    enabled: true
+    enabled: false
     registries: #[]
       - host: docker.local-kw01
         port: 5000
@@ -145,7 +145,7 @@ persistence:
   # annotations:
   #  "helm.sh/resource-policy": keep
   storageClass: "local-path"
-  storageSize: 20Gi
+  storageSize: 5Gi
   # If PersistentDisk already exists you can create a PV for it by including the 2 following keypairs.
   # pdName: nexus-data-disk
   # fsType: ext4

@@ -10,7 +10,7 @@ metadata:
   labels:
     "app.kubernetes.io/name": '{{ template "jenkins.name" .}}'
     {{- if .Values.renderHelmLabels }}
-    "helm.sh/chart": "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    "helm.sh/chart": "{{ template "jenkins.label" .}}"
     {{- end }}
     "app.kubernetes.io/managed-by": "{{ .Release.Service }}"
     "app.kubernetes.io/instance": "{{ .Release.Name }}"
@@ -46,7 +46,7 @@ spec:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
         {{- if .Values.controller.podAnnotations }}
-{{ toYaml .Values.controller.podAnnotations | indent 8 }}
+{{ tpl (toYaml .Values.controller.podAnnotations | indent 8) . }}
         {{- end }}
     spec:
       {{- if .Values.controller.schedulerName }}
@@ -112,11 +112,18 @@ spec:
           command: [ "sh", "/var/jenkins_config/apply_config.sh" ]
             {{- if .Values.controller.initContainerEnv }}
           env:
-{{ toYaml .Values.controller.initContainerEnv | indent 12 }}
+{{ (tpl (toYaml .Values.controller.initContainerEnv) .) | indent 12 }}
             {{- end }}
           resources:
+{{- if .Values.controller.initContainerResources }}
+{{ toYaml .Values.controller.initContainerResources | indent 12 }}
+{{- else }}
 {{ toYaml .Values.controller.resources | indent 12 }}
+{{- end }}
           volumeMounts:
+            {{- if .Values.persistence.mounts }}
+{{ toYaml .Values.persistence.mounts | indent 12 }}
+            {{- end }}
             - mountPath: {{ .Values.controller.jenkinsHome }}
               name: jenkins-home
               {{- if .Values.persistence.subPath }}
@@ -132,7 +139,7 @@ spec:
             - mountPath: /var/jenkins_plugins
               name: plugin-dir
             {{- end }}
-            {{- if .Values.controller.initScripts }}
+            {{- if or .Values.controller.initScripts .Values.controller.initConfigMap }}
             - mountPath: {{ .Values.controller.jenkinsHome }}/init.groovy.d
               name: init-scripts
             {{- end }}
@@ -140,9 +147,15 @@ spec:
         - name: jenkins
           image: "{{ .Values.controller.image }}:{{ .Values.controller.tag }}"
           imagePullPolicy: "{{ .Values.controller.imagePullPolicy }}"
-          {{- if .Values.controller.httpsKeyStore.enable }}
+          {{- if .Values.controller.overrideArgs }}
+          args: [
+            {{- range $overrideArg := .Values.controller.overrideArgs }}
+              "{{- $overrideArg }}",
+            {{- end }}
+          ]
+          {{- else if .Values.controller.httpsKeyStore.enable }}
           {{- $httpsJKSFilePath :=  printf "%s/%s" .Values.controller.httpsKeyStore.path .Values.controller.httpsKeyStore.fileName }}
-          args: [ "--httpPort={{.Values.controller.httpsKeyStore.httpPort}}", "--httpsPort={{.Values.controller.targetPort}}", '--httpsKeyStore={{ $httpsJKSFilePath | quote }}', "--httpsKeyStorePassword=$(JENKINS_HTTPS_KEYSTORE_PASSWORD)" ]
+          args: [ "--httpPort={{.Values.controller.httpsKeyStore.httpPort}}", "--httpsPort={{.Values.controller.targetPort}}", '--httpsKeyStore={{ $httpsJKSFilePath }}', "--httpsKeyStorePassword=$(JENKINS_HTTPS_KEYSTORE_PASSWORD)" ]
           {{- else }}
           args: [ "--httpPort={{.Values.controller.targetPort}}"]
           {{- end }}
@@ -150,6 +163,12 @@ spec:
           lifecycle:
 {{ toYaml .Values.controller.lifecycle | indent 12 }}
           {{- end }}
+{{- if .Values.controller.terminationMessagePath }}
+          terminationMessagePath: {{ .Values.controller.terminationMessagePath }}
+{{- end }}
+{{- if .Values.controller.terminationMessagePolicy }}
+          terminationMessagePolicy: {{ .Values.controller.terminationMessagePolicy }}
+{{- end }}
           env:
             - name: POD_NAME
               valueFrom:
@@ -172,7 +191,7 @@ spec:
             {{- end }}
 
             {{- if .Values.controller.containerEnv }}
-{{ toYaml .Values.controller.containerEnv | indent 12 }}
+{{ (tpl ( toYaml .Values.controller.containerEnv) .) | indent 12 }}
             {{- end }}
             - name: CASC_JENKINS_CONFIG
               value: {{ .Values.controller.sidecars.configAutoReload.folder | default (printf "%s/casc_configs" (.Values.controller.jenkinsRef)) }}
@@ -206,7 +225,8 @@ spec:
 {{ toYaml .Values.persistence.mounts | indent 12 }}
 {{- end }}
             {{- if .Values.controller.httpsKeyStore.enable }}
-            - mountPath: {{ .Values.controller.httpsKeyStore.path }}
+            {{- $httpsJKSFilePath :=  printf "%s/%s" .Values.controller.httpsKeyStore.path .Values.controller.httpsKeyStore.fileName }}
+            - mountPath: {{ $httpsJKSFilePath }}
               name: jenkins-https-keystore
             {{- end }}
             - mountPath: {{ .Values.controller.jenkinsHome }}
@@ -223,7 +243,7 @@ spec:
               name: plugin-dir
               readOnly: false
             {{- end }}
-            {{- if .Values.controller.initScripts }}
+            {{- if or .Values.controller.initScripts .Values.controller.initConfigMap }}
             - mountPath: {{ .Values.controller.jenkinsHome }}/init.groovy.d
               name: init-scripts
             {{- end }}
@@ -239,6 +259,18 @@ spec:
             - name: admin-secret
               mountPath: /run/secrets/chart-admin-password
               subPath: {{ .Values.controller.admin.passwordKey | default "jenkins-admin-password" }}
+              readOnly: true
+            {{- end }}
+            {{- range .Values.controller.additionalSecrets }}
+            - name: jenkins-additional-secrets
+              mountPath: /run/secrets/{{ .name }}
+              subPath: {{ .name }}
+              readOnly: true
+            {{- end }}
+            {{- range $key, $value := .Values.controller.additionalExistingSecrets }}
+            - name: {{ $value.name }}-{{ $value.keyName }}
+              mountPath: /run/secrets/{{ $value.name }}-{{ $value.keyName }}
+              subPath: {{ $value.keyName }}
               readOnly: true
             {{- end }}
 
@@ -264,7 +296,7 @@ spec:
             - name: REQ_RETRY_CONNECT
               value: "{{ .Values.controller.sidecars.configAutoReload.reqRetryConnect }}"
             {{- if .Values.controller.sidecars.configAutoReload.env }}
-{{ toYaml .Values.controller.sidecars.configAutoReload.env | indent 12 }}
+{{ (tpl (toYaml .Values.controller.sidecars.configAutoReload.env) .) | indent 12 }}
             {{- end }}
           resources:
 {{ toYaml .Values.controller.sidecars.configAutoReload.resources | indent 12 }}
@@ -289,7 +321,18 @@ spec:
 {{- end }}
       - name: plugins
         emptyDir: {}
-      {{- if .Values.controller.initScripts }}
+      {{- if and .Values.controller.initScripts .Values.controller.initConfigMap }}
+      - name: init-scripts
+        projected:
+          - configMap:
+              name: {{ template "jenkins.fullname" . }}-init-scripts
+          - configMap:
+              name: {{ .Values.controller.initConfigMap }}
+      {{- else if .Values.controller.initConfigMap }}
+      - name: init-scripts
+        configMap:
+          name: {{ .Values.controller.initConfigMap }}
+      {{- else if .Values.controller.initScripts }}
       - name: init-scripts
         configMap:
           name: {{ template "jenkins.fullname" . }}-init-scripts
@@ -300,6 +343,18 @@ spec:
       {{- if .Values.controller.installPlugins }}
       - name: plugin-dir
         emptyDir: {}
+      {{- end }}
+      {{- if .Values.controller.additionalSecrets }}
+      - name: jenkins-additional-secrets
+        secret:
+          secretName: {{ template "jenkins.fullname" . }}-additional-secrets
+      {{- end }}
+      {{- if .Values.controller.additionalExistingSecrets }}
+      {{- range $key, $value := .Values.controller.additionalExistingSecrets }}
+      - name: {{ $value.name }}-{{ $value.keyName }}
+        secret:
+          secretName: {{ $value.name }}
+      {{- end }}
       {{- end }}
       {{- if not (contains "jenkins-home" (quote .Values.persistence.volumes)) }}
       - name: jenkins-home

@@ -1,0 +1,476 @@
+NAME: jenkins
+LAST DEPLOYED: Fri Oct 29 22:44:40 2021
+NAMESPACE: jenkins
+STATUS: pending-install
+REVISION: 1
+TEST SUITE: None
+HOOKS:
+MANIFEST:
+---
+# Source: jenkins/templates/service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+---
+# Source: jenkins/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+type: Opaque
+data:
+  jenkins-admin-password: "STY2T1ZMdjRwemZaV0dkZ1k4eVpZbQ=="
+  jenkins-admin-user: "YWRtaW4="
+---
+# Source: jenkins/templates/config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+data:
+  apply_config.sh: |-
+    set -e
+    echo "disable Setup Wizard"
+    # Prevent Setup Wizard when JCasC is enabled
+    echo $JENKINS_VERSION > /var/jenkins_home/jenkins.install.UpgradeWizard.state
+    echo $JENKINS_VERSION > /var/jenkins_home/jenkins.install.InstallUtil.lastExecVersion
+    echo "finished initialization"
+  plugins.txt: |-
+---
+# Source: jenkins/templates/jcasc-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jenkins-jenkins-jcasc-config
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": jenkins
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+    jenkins-jenkins-config: "true"
+data:
+  jcasc-default-config.yaml: |-
+    jenkins:
+      authorizationStrategy:
+        loggedInUsersCanDoAnything:
+          allowAnonymousRead: false
+      securityRealm:
+        local:
+          allowsSignup: false
+          enableCaptcha: false
+          users:
+          - id: "${chart-admin-username}"
+            name: "Jenkins Admin"
+            password: "${chart-admin-password}"
+      disableRememberMe: false
+      remotingSecurity:
+        enabled: true
+      mode: NORMAL
+      numExecutors: 0
+      labelString: ""
+      projectNamingStrategy: "standard"
+      markupFormatter:
+        plainText
+      clouds:
+      - kubernetes:
+          containerCapStr: "10"
+          defaultsProviderTemplate: ""
+          connectTimeout: "5"
+          readTimeout: "15"
+          jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+          jenkinsTunnel: "jenkins-agent.jenkins.svc.cluster.local:50000"
+          maxRequestsPerHostStr: "32"
+          name: "kubernetes"
+          namespace: "jenkins"
+          serverUrl: "https://kubernetes.default"
+          podLabels:
+          - key: "jenkins/jenkins-jenkins-agent"
+            value: "true"
+          templates:
+            - name: "default"
+              id: 9d6b7433dcf4d0a34ca7a1788acc726351c3bf0be8a85d3cc5a768c4048c8244
+              containers:
+              - name: "jnlp"
+                alwaysPullImage: false
+                args: "^${computer.jnlpmac} ^${computer.name}"
+                command: 
+                envVars:
+                  - envVar:
+                      key: "JENKINS_URL"
+                      value: "http://jenkins.jenkins.svc.cluster.local:8080/"
+                image: "jenkins-agent:kb"
+                privileged: "false"
+                resourceLimitCpu: 512m
+                resourceLimitMemory: 512Mi
+                resourceRequestCpu: 512m
+                resourceRequestMemory: 512Mi
+                runAsUser: 
+                runAsGroup: 
+                ttyEnabled: false
+                workingDir: /home/jenkins/agent
+              idleMinutes: 0
+              instanceCap: 2147483647
+              label: "jenkins-jenkins-agent "
+              nodeUsageMode: "NORMAL"
+              podRetention: Never
+              showRawYaml: true
+              serviceAccount: "default"
+              slaveConnectTimeoutStr: "100"
+              volumes:
+                - hostPathVolume:
+                    hostPath: "/var/run/docker.sock"
+                    mountPath: "/var/run/docker.sock"
+              yamlMergeStrategy: override
+      crumbIssuer:
+        standard:
+          excludeClientIPFromCrumb: true
+    security:
+      apiToken:
+        creationOfLegacyTokenEnabled: false
+        tokenGenerationOnCreationEnabled: false
+        usageStatisticsEnabled: true
+    unclassified:
+      location:
+        adminAddress: 
+        url: http://jenkins:8080
+---
+# Source: jenkins/templates/rbac.yaml
+# This role is used to allow Jenkins scheduling of agents via Kubernetes plugin.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-schedule-agents
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/exec", "pods/log", "persistentvolumeclaims", "events"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods", "pods/exec", "persistentvolumeclaims"]
+  verbs: ["create", "delete", "deletecollection", "patch", "update"]
+---
+# Source: jenkins/templates/rbac.yaml
+# The sidecar container which is responsible for reloading configuration changes
+# needs permissions to watch ConfigMaps
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-casc-reload
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list"]
+---
+# Source: jenkins/templates/rbac.yaml
+# We bind the role to the Jenkins service account. The role binding is created in the namespace
+# where the agents are supposed to run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-schedule-agents
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-schedule-agents
+subjects:
+- kind: ServiceAccount
+  name: jenkins
+  namespace: jenkins
+---
+# Source: jenkins/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-watch-configmaps
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-casc-reload
+subjects:
+- kind: ServiceAccount
+  name: jenkins
+  namespace: jenkins
+---
+# Source: jenkins/templates/jenkins-agent-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-agent
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+spec:
+  ports:
+    - port: 50000
+      targetPort: 50000
+      name: agent-listener
+  selector:
+    "app.kubernetes.io/component": "jenkins-controller"
+    "app.kubernetes.io/instance": "jenkins"
+  type: ClusterIP
+---
+# Source: jenkins/templates/jenkins-controller-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+spec:
+  ports:
+    - port: 8080
+      name: http
+      targetPort: 8080
+      nodePort: 30088
+  selector:
+    "app.kubernetes.io/component": "jenkins-controller"
+    "app.kubernetes.io/instance": "jenkins"
+  type: NodePort
+---
+# Source: jenkins/templates/jenkins-controller-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins
+  namespace: jenkins
+  labels:
+    "app.kubernetes.io/name": 'jenkins'
+    "helm.sh/chart": "jenkins-3.8.4"
+    "app.kubernetes.io/managed-by": "Helm"
+    "app.kubernetes.io/instance": "jenkins"
+    "app.kubernetes.io/component": "jenkins-controller"
+spec:
+  serviceName: jenkins
+  replicas: 1
+  selector:
+    matchLabels:
+      "app.kubernetes.io/component": "jenkins-controller"
+      "app.kubernetes.io/instance": "jenkins"
+  template:
+    metadata:
+      labels:
+        "app.kubernetes.io/name": 'jenkins'
+        "app.kubernetes.io/managed-by": "Helm"
+        "app.kubernetes.io/instance": "jenkins"
+        "app.kubernetes.io/component": "jenkins-controller"
+      annotations:
+        checksum/config: be23948b8f60b1fe83533229fefc662faa2ea3009bcea8515ea861465fa9c96d
+    spec:
+      securityContext:
+    
+        runAsUser: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+      serviceAccountName: "jenkins"
+      initContainers:
+        - name: "init"
+          image: "jenkins/jenkins:kb"
+          imagePullPolicy: "IfNotPresent"
+          command: [ "sh", "/var/jenkins_config/apply_config.sh" ]
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /var/jenkins_home
+              name: jenkins-home
+            - mountPath: /var/jenkins_config
+              name: jenkins-config
+      containers:
+        - name: jenkins
+          image: "jenkins/jenkins:kb"
+          imagePullPolicy: "IfNotPresent"
+          args: [ "--httpPort=8080"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: JAVA_OPTS
+              value: >-
+                 -Dcasc.reload.token=$(POD_NAME) 
+            - name: JENKINS_OPTS
+              value: >-
+                
+            - name: JENKINS_SLAVE_AGENT_PORT
+              value: "50000"
+            - name: CASC_JENKINS_CONFIG
+              value: /var/jenkins_home/casc_configs
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 50000
+              name: agent-listener
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: '/login'
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: '/login'
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            failureThreshold: 12
+            httpGet:
+              path: '/login'
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /var/jenkins_home
+              name: jenkins-home
+              readOnly: false
+            - mountPath: /var/jenkins_config
+              name: jenkins-config
+              readOnly: true
+            - name: sc-config-volume
+              mountPath: /var/jenkins_home/casc_configs
+            - name: admin-secret
+              mountPath: /run/secrets/chart-admin-username
+              subPath: jenkins-admin-user
+              readOnly: true
+            - name: admin-secret
+              mountPath: /run/secrets/chart-admin-password
+              subPath: jenkins-admin-password
+              readOnly: true
+        - name: config-reload
+          image: "kiwigrid/k8s-sidecar:1.14.2"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LABEL
+              value: "jenkins-jenkins-config"
+            - name: FOLDER
+              value: "/var/jenkins_home/casc_configs"
+            - name: NAMESPACE
+              value: 'jenkins'
+            - name: REQ_URL
+              value: "http://localhost:8080/reload-configuration-as-code/?casc-reload-token=$(POD_NAME)"
+            - name: REQ_METHOD
+              value: "POST"
+            - name: REQ_RETRY_CONNECT
+              value: "10"
+          resources:
+            {}
+          volumeMounts:
+            - name: sc-config-volume
+              mountPath: "/var/jenkins_home/casc_configs"
+            - name: jenkins-home
+              mountPath: /var/jenkins_home
+
+      volumes:
+      - name: plugins
+        emptyDir: {}
+      - name: jenkins-config
+        configMap:
+          name: jenkins
+      - name: jenkins-home
+        emptyDir: {}
+      - name: sc-config-volume
+        emptyDir: {}
+      - name: admin-secret
+        secret:
+          secretName: jenkins
+
+NOTES:
+1. Get your 'admin' user password by running:
+  kubectl exec --namespace jenkins -it svc/jenkins -c jenkins -- /bin/cat /run/secrets/chart-admin-password && echo
+2. Get the Jenkins URL to visit by running these commands in the same shell:
+  export NODE_PORT=$(kubectl get --namespace jenkins -o jsonpath="{.spec.ports[0].nodePort}" services jenkins)
+  export NODE_IP=$(kubectl get nodes --namespace jenkins -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT/login
+
+3. Login with the password from step 1 and the username: admin
+4. Configure security realm and authorization strategy
+5. Use Jenkins Configuration as Code by specifying configScripts in your values.yaml file, see documentation: http:///configuration-as-code and examples: https://github.com/jenkinsci/configuration-as-code-plugin/tree/master/demos
+
+For more information on running Jenkins on Kubernetes, visit:
+https://cloud.google.com/solutions/jenkins-on-container-engine
+
+For more information about Jenkins Configuration as Code, visit:
+https://jenkins.io/projects/jcasc/
+
+
+NOTE: Consider using a custom image with pre-installed plugins
+#################################################################################
+######   WARNING: Persistence is disabled!!! You will lose your data when   #####
+######            the Jenkins pod is terminated.                            #####
+#################################################################################
