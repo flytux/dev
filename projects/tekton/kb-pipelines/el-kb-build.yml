@@ -6,6 +6,13 @@ spec:
   serviceAccountName: sa-pipeline-trigger
   triggers:
     - name: build-trigger
+      interceptors:
+        - name: "CEL filter: only master brancher pushed"
+          ref:
+            name: "cel"
+          params:
+          - name: "filter"
+            value: "body.changes[0].ref.displayId in ['master']"
       bindings:
         - ref: build-binding
       template:

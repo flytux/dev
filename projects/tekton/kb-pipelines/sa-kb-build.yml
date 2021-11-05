@@ -54,7 +54,7 @@ metadata:
 rules:
   # Permissions for every EventListener deployment to function
   - apiGroups: ["triggers.tekton.dev"]
-    resources: ["eventlisteners", "triggers", "triggerbindings", "triggertemplates", "clustertriggerbindings"]
+    resources: ["eventlisteners", "triggers", "triggerbindings", "triggertemplates", "clustertriggerbindings", "clusterinterceptors"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["configmaps", "secrets"] # secrets are only needed for Github/Gitlab interceptors
@@ -68,7 +68,6 @@ rules:
     resources: ["services", "deployments", "pods"]
     verbs: ["get", "create", "update", "patch", "list", "delete"]
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -81,3 +80,28 @@ subjects:
   - kind: ServiceAccount
     name: sa-pipeline-trigger
     namespace: build
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: triggers--eventlistener-binding
+subjects:
+- kind: ServiceAccount
+  name: sa-pipeline-trigger
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-roles
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: triggers-eventlistener-clusterbinding
+subjects:
+- kind: ServiceAccount
+  name: sa-pipeline-trigger
+  namespace: build
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-clusterroles

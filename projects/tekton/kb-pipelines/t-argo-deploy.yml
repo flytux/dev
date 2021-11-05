@@ -60,7 +60,7 @@ spec:
     image: quay.io/argoproj/argocd:v2.1.6
     script: |
       #!/usr/bin/env sh
-      set -e
+      #set -e
       argocd app sync $(inputs.params.argo-app-name) --insecure
       argocd app wait $(inputs.params.argo-app-name) --sync --health --operation --insecure
 
